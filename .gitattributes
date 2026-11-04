@@ -1,0 +1,9 @@
+# 统一用 LF：doclint / skillctl 里大量正则按 "\n" 匹配，
+# 若提交时被转成 CRLF，`check` 的行号与段落切分会漂。
+* text=auto eol=lf
+
+# 二进制
+*.docx binary
+*.zip  binary
+*.png  binary
+*.jpg  binary

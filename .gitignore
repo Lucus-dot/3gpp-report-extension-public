@@ -1,0 +1,28 @@
+# 本地覆盖配置：按顶层键叠在 config.json 上（load_cfg 会读），不进版本库
+# 用途：required_sections 这类「按某份基准报告而变」的项目参数写在这里
+config.local.json
+
+# example 里的会议原始素材：约 50 MB 第三方公司 TDoc + 主席报告，版权不归本仓库
+# 注意：这条只挡住 git。用 zip / 网盘 / GUI 工具整目录上传时它不生效，打包前请手工确认
+example/RAN1#126b/
+
+# 试跑产物（example 里那份 扩展_20261026.md 是正式样例，别误伤）
+example/*_seal.json
+
+# 运行态与日志（含本机路径，任何 *.log 都不该进库）
+.workbuddy/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Office 临时文件
+~$*
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 工作中间产物（含从第三方提取的原文、本机路径、中间数据）
+example/_work_9_4_1/
