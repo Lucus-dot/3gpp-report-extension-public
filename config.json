@@ -1,0 +1,385 @@
+{
+  "skill": "3gpp-report-extension",
+  "version": "2.2.0",
+  "title": "3GPP 基准报告 · 会议增量续篇",
+  "_cfg_note": "本文件是**技能定义**（stages/gates/steps + 校验规则 + 物理常量），随包分发，不要在这里改项目参数。真正会随基准报告而变的只有 required_sections 的节号：要改请在**同目录**建 config.local.json（如 {\"required_sections\": [\"§4.7\", …, \"附录 A\"]}），它按顶层键覆盖本文件，且已在 .gitignore 里——不进版本库，就不会把你那份报告的结构推给别人。constants/markers 支持按子键局部覆盖。",
+  "state_rel": ".workbuddy/skill-state/3gpp-report-extension.json",
+  "markers": {
+    "original": "【原文】",
+    "analysis": "【解读】",
+    "derived": "【折算】",
+    "mapping": "【映射】"
+  },
+  "constants": {
+    "Tc_s": 5.086263020833333e-10,
+    "legacy_ta_mult": 1024,
+    "legacy_rar_tac_bits": 12,
+    "legacy_rar_tac_max": 3846,
+    "c_m_s": 300000000.0
+  },
+  "default_first_section": 5,
+  "default_major_section": 4,
+  "_sections_note": "required_sections 是节号的唯一真值：init 从它反解大节号与首小节号生成骨架，check 用它验章节是否齐全。基准报告末节不是 4.4 时，只改这里（如把 §4.5..§4.12 整体改成 §4.7..§4.14）。default_* 仅在 required_sections 为空时兜底。",
+  "required_sections": [
+    "§4.5",
+    "§4.6",
+    "§4.7",
+    "§4.8",
+    "§4.9",
+    "§4.10",
+    "§4.11",
+    "§4.12",
+    "附录 A",
+    "附录 B"
+  ],
+  "forbidden_patterns": [
+    {
+      "pattern": "TODO",
+      "why": "占位符未填"
+    },
+    {
+      "pattern": "\\[TODO",
+      "why": "占位符未填"
+    },
+    {
+      "pattern": "待补",
+      "why": "占位符未填"
+    },
+    {
+      "pattern": "SCS×2\\^",
+      "why": "已知错误写法：FAC 粒度是 SCS/2^k"
+    }
+  ],
+  "stages": [
+    {
+      "id": "A1",
+      "name": "抄基线，生骨架",
+      "goal": "续篇的标题、接续位置、小节号、WI 条目表全部来自基线；模板只声明字段，不提供内容。",
+      "phase": "A",
+      "inputs": [
+        "基准报告 .md（必填）",
+        "--meeting / --agenda"
+      ],
+      "steps": [
+        "跑 `skillctl init --base <基准报告> --meeting <会议> --agenda <项>`：工具从基线读 H1、末个「第N部分」标题、末节号，抄出 WI 条目表落 `_work_<agenda>/wid.json`。",
+        "读 init 的输出：确认「标题抄自基线」一行与基准报告 H1 完全一致；不一致即停（工具会 exit 2）。",
+        "确认 `wid.json` 条目数 == 基线「WID 目标 × … 总映射」表的行数。"
+      ],
+      "gates": [
+        "续篇 H1 与基准报告 H1 逐字相同",
+        "续篇起始小节号 > 基线末节号",
+        "wid.json 已生成，条目数等于基线映射表行数"
+      ],
+      "outputs": [
+        "续篇骨架 .md",
+        "_work_<agenda>/wid.json"
+      ]
+    },
+    {
+      "id": "A2",
+      "name": "抽权威文本",
+      "goal": "把 docx 变成可 grep 的段落流。主席报告是唯一落槌来源，FL Summary 只作讨论脉络。",
+      "phase": "A",
+      "inputs": [
+        "Chair notes 目标议程项 .docx",
+        "每份 FL Summary .docx"
+      ],
+      "reads": [
+        "references/00-provenance.md"
+      ],
+      "steps": [
+        "跑 `skillctl extract <Chair notes>.docx --out _eom_<agenda>_verbatim.txt`。",
+        "对每份 FL Summary 各跑一次 `skillctl extract <FL.docx> --out _fl/<TDoc>.txt`。",
+        "记下 stderr 的「已知丢失」：公式（oMath）、表格结构、页眉页脚与批注。涉及公式处回 document.xml 核对。"
+      ],
+      "gates": [
+        "_eom_ 文本行数 > 0 且含目标议程项",
+        "每份 FL 都有对应 .txt",
+        "抽取的已知丢失项已记录"
+      ],
+      "outputs": [
+        "_eom_<agenda>_verbatim.txt",
+        "_fl/*.txt"
+      ]
+    },
+    {
+      "id": "A3",
+      "name": "切块 + 定轮次",
+      "goal": "把主席报告的 Agreement/WA 切成可逐字对账的块，并按内嵌 FL 分隔行定轮次。这一步全是机械的，不许模型代劳。",
+      "phase": "A",
+      "inputs": [
+        "_eom_<agenda>_verbatim.txt"
+      ],
+      "steps": [
+        "跑 `skillctl blocks _eom_<agenda>_verbatim.txt --out-dir _work_<agenda>`。",
+        "核对输出：块数、FL 分隔行、轮次归属表、FFS 条数。",
+        "若报「轮次回头」，说明混入了别的议程项段落，回 A2 重新裁段。"
+      ],
+      "gates": [
+        "块数 == check --eom 的对账数",
+        "每块都定了 fl_round，且 fl_round 单调不回退",
+        "blocks.json / ffs.json 已落盘"
+      ],
+      "outputs": [
+        "blocks.json",
+        "ffs.json"
+      ]
+    },
+    {
+      "id": "A4",
+      "name": "抽议题骨架",
+      "goal": "本场会议自己的议题树（Topic#k / Issue#k-m）只能从 FL 里抄，不能自己编；骨架以最末一份 FL 为准。",
+      "phase": "A",
+      "inputs": [
+        "_fl/*.txt（按轮次早→晚）"
+      ],
+      "steps": [
+        "跑 `skillctl issues _fl/FL1.txt _fl/FL2.txt … --out-dir _work_<agenda>`，文件顺序必须早→晚。",
+        "核对 Issue 数、有无立场段（Companies/Proponents）、Proposal 段数、跨轮骨架差异。",
+        "「无立场段」的 Issue 记下来：写解读时不能凭印象补公司名。"
+      ],
+      "gates": [
+        "Issue 数与最末一份 FL 一致",
+        "每个 Issue 标了有/无立场段",
+        "跨轮骨架 diff 已列"
+      ],
+      "outputs": [
+        "issues.json"
+      ]
+    },
+    {
+      "id": "A5",
+      "name": "对齐：块 → Issue",
+      "goal": "把本场的 Agreement 块挂到本场的 Issue 下。这一步只在会议内部发生，与上一次会议无关。",
+      "phase": "A",
+      "inputs": [
+        "blocks.json",
+        "issues.json"
+      ],
+      "steps": [
+        "跑 `skillctl flow --blocks … --issues … --out-dir _work_<agenda>`，工具按 Proposal 段 n-gram 重叠给候选。",
+        "只看输出里标了「需模型判定」的块（通常 ≤5 条）：读该块原文 + 各候选 Issue 的 Proposal 段，定归属并抄出证据句。",
+        "其余块直接采用工具结论，不再重读全文。"
+      ],
+      "gates": [
+        "14 块（或本场全部块）都有 Issue 归属",
+        "每个归属有 evidence 句，且能在对应 FL 文本里逐字找到"
+      ],
+      "outputs": [
+        "flow.json（issue 与 candidates 字段）"
+      ]
+    },
+    {
+      "id": "A6",
+      "name": "串讨论链",
+      "goal": "把 TDoc→FL#1→FL#2→…→Agreement 的演变写成可核对的链：起点由 FL 的 Proponents/See 指认，过程由 Proposal 差异表示，终点由块原文比对。",
+      "phase": "A",
+      "inputs": [
+        "flow.json"
+      ],
+      "steps": [
+        "对每个块，读 flow.json 里的 rounds：该 Issue 在各轮 FL 的段落与 Proposal 编号。",
+        "为每相邻两轮写一句「这一轮改了什么」（只给 delta 命名，不重读全文）。",
+        "核对 origins_tdoc / proponents 是否支撑「起点」；若为空，在 tdoc_reason 写「FL 未给起点」。",
+        "需要看 TDoc 原文时，仅限三种情形之一（①FL 只写 See R1-xxx 无总结段 ②相邻轮 Proposal 互斥且 FL 未判胜负 ③WA 数值需溯源），跑 `skillctl tdoc <R1-xxx>`，并在 tdoc_reason 记触发编号。全场上限 5 篇。"
+      ],
+      "gates": [
+        "每块都有一句 delta",
+        "origins 为空时已显式写明「FL 未给起点」",
+        "凡抽取了 TDoc 的块，tdoc_reason 记了触发条件编号"
+      ],
+      "outputs": [
+        "flow.json（rounds/delta/origins/tdoc_reason 字段）"
+      ]
+    },
+    {
+      "id": "A7",
+      "name": "逐块写三段",
+      "goal": "一次只写一块。模型只读该块切片，不读全篇素材。",
+      "phase": "A",
+      "inputs": [
+        "flow.json",
+        "blocks.json",
+        "issues.json",
+        "wid.json",
+        "基线对应 WI 条目原节"
+      ],
+      "reads": [
+        "references/03-pitfalls.md"
+      ],
+      "steps": [
+        "按块逐个写，每块三段：【原文】逐字粘贴（含 FFS/Note，一字不改）→ 【解读】（裁定了什么、与基线差异、技术论据）→ 【映射】（WI 条目 + 受影响 TS）。",
+        "写【解读】时，凡引公司立场，必须标来源 `FL#k / Issue#x-y`；本场 FL 里查不到的公司名一律不写。",
+        "不合并语义相近的 Agreement，不改写数值与单位。"
+      ],
+      "gates": [
+        "每条【原文】与 blocks.json 对应块归一化后逐字相等",
+        "每个公司名都能在关联 FL 切片里定位并标了来源",
+        "每个【映射】的 WI 条目都在 wid.json 里"
+      ],
+      "outputs": [
+        "续篇 §n.3 各块的原文/解读/映射"
+      ]
+    },
+    {
+      "id": "B1",
+      "name": "挂接：Issue → WI 条目",
+      "goal": "跨会议的稳定主键是 WI 条目（A1/A2/B1…），不是 Ag 编号，也不是 Issue 编号。上一次会议的 Agreement 只作过渡桥。",
+      "phase": "B",
+      "inputs": [
+        "flow.json",
+        "wid.json",
+        "基线 WI 映射表"
+      ],
+      "steps": [
+        "跑 `skillctl rel --flow … --wid … --out-dir _work_<agenda>`：工具按 Issue 标题关键词挂到 WI 条目，并列出未挂上的 Issue。",
+        "只看 unmapped_issues 与「双路冲突」的条目：读 Issue 标题与首段 + wid.json + 基线 WID 原文相关段，定归属。",
+        "落不到既有条目的，判是否派生新条目（N 系列），写明派生依据（WID 哪句 NOTE / 哪份 TS）。",
+        "禁用本次 Ag 编号当挂接键。"
+      ],
+      "gates": [
+        "每个 Issue 都有 WI 归属，或显式标「不属本 WI」",
+        "派生条目写明了依据句",
+        "顺基线桥走的条目与基线映射一致"
+      ],
+      "outputs": [
+        "rel.json（issue_to_wi / entries.blocks）"
+      ]
+    },
+    {
+      "id": "B2",
+      "name": "关系判定",
+      "goal": "每条 WI 条目与本场的关系必须明说，否则读者看不出是延续、新增、派生还是拆分。",
+      "phase": "B",
+      "inputs": [
+        "rel.json",
+        "基线 WI 映射表 + 基线上一场 Agreement"
+      ],
+      "steps": [
+        "对每个有条目的 WI，五选一：CONTINUE 延续 / NEW 新增 / DERIVED 派生 / SPLIT 拆分 / RELATED 关联。",
+        "DERIVED 与 SPLIT 必须写 base_ref：指向基线里具体哪一条 Agreement。",
+        "NEW 必须写「基线为何缺」（WID 未列？NOTE 派生？其他 WG 主导？）。",
+        "RELATED 写关联性：共享参数、依赖关系还是冲突。"
+      ],
+      "gates": [
+        "每个 WI 条目都有 kind",
+        "DERIVED/SPLIT 有 base_ref",
+        "NEW 写明了基线缺失原因"
+      ],
+      "outputs": [
+        "rel.json（kind / base_ref / evidence）"
+      ]
+    },
+    {
+      "id": "B3",
+      "name": "按 WI 组装正文",
+      "goal": "组织方式从「Ag 编号」换成「WI 条目」，但块不能丢、不能重。",
+      "phase": "B",
+      "inputs": [
+        "rel.json",
+        "flow.json",
+        "blocks.json"
+      ],
+      "steps": [
+        "跑 `skillctl compose --rel rel.json --blocks blocks.json --target <续篇> --section 4.7`：节标题/四段骨架/总表/块序/块标签/块数自证由工具发。",
+        "读 compose 打印的待填清单，按它逐项写：①基线原状（从基线抄，含上一场是哪条 Ag 落槌）、每块的【解读】与【映射】、③演进分析、④遗留。",
+        "没有本场进展的条目保留「本场无进展」并给判据；跨条目的块主挂一处、另一处写指针（covered_by），不复制原文。",
+        "填完重跑一次 compose：幂等，只重排结构、不覆盖已写内容；待填项归零后再进 B6。"
+      ],
+      "gates": [
+        "块数守恒：本场每个块在全文出现且仅出现一次",
+        "每个 WI 条目四段齐全",
+        "无本场进展的条目保留并标「本场无进展」",
+        "compose 幂等：重跑字节不变"
+      ],
+      "outputs": [
+        "续篇 §n.3 的 WI 条目分节（compose 生成结构 + 模型填内容）"
+      ]
+    },
+    {
+      "id": "B4",
+      "name": "演进分析",
+      "goal": "同一 WI 条目跨会议的差异，必须由模型写，且必须落在切片上。",
+      "phase": "B",
+      "inputs": [
+        "该 WI 的基线原状",
+        "本场该 WI 下各块原文",
+        "该 WI 的历次 Ag 编号序列"
+      ],
+      "steps": [
+        "每条目写三件事：①本场推进了什么 ②与历次比差异在哪 ③关系类型带来什么影响。",
+        "必须同时引用一处基线原文与一处本场原文；不得引入切片之外的事实。",
+        "写「停滞」时给出判据（本场该条目下无 Agreement / 只有 FL 级 Agree）。"
+      ],
+      "gates": [
+        "引用了一处基线原文 + 一处本场原文",
+        "未引入切片外事实",
+        "判停滞时给出了判据"
+      ],
+      "outputs": [
+        "续篇 §n.3 各条目的「③ 演进分析」"
+      ]
+    },
+    {
+      "id": "B5",
+      "name": "定量折算",
+      "goal": "数值先定公式，再由工具复算；不许手算，不许让数字和公式脱钩。",
+      "phase": "B",
+      "inputs": [
+        "块原文里的数值",
+        "TR 38.742 表",
+        "数值口径"
+      ],
+      "reads": [
+        "references/02-numeric-cookbook.md"
+      ],
+      "steps": [
+        "先写清公式与假设：粒度定义、位宽 = ⌈log₂ 步数⌉、ppm 换算。",
+        "跑 `skillctl calc all` 复算，把结果落 calc.json。",
+        "对每个数标出处：原文给的 / 本报告折算的。"
+      ],
+      "gates": [
+        "续篇里每个数都能在 calc.json 找到",
+        "每个数标了「原文」还是「折算」",
+        "公式与假设写在正文，不藏在结论里"
+      ],
+      "outputs": [
+        "calc.json",
+        "续篇 §n.4"
+      ]
+    },
+    {
+      "id": "B6",
+      "name": "汇总、未收口与校验",
+      "goal": "把前面各步的产物汇成三张视图，然后跑机械校验；不过关不许交。",
+      "phase": "B",
+      "inputs": [
+        "rel.json",
+        "ffs.json",
+        "blocks.json",
+        "calc.json",
+        "基线映射表"
+      ],
+      "reads": [
+        "references/00-provenance.md"
+      ],
+      "steps": [
+        "三列总映射：基线 × 上一场 × 本场，逐 WI 行；工具拼表，模型只判「增量性质」。",
+        "增量清单：逐 WI 对比，标无变化/裁决/新增/停滞。",
+        "未收口：ffs.json 全量列表，按「是否阻塞 Core 封版」排序，写下一场决策点。",
+        "跑 `skillctl check <续篇> --eom <逐字文本> --workdir _work_<agenda>`；ERROR 全清才可 `seal`。"
+      ],
+      "gates": [
+        "check 的 ERROR 为 0",
+        "三列总映射覆盖 wid.json 全部条目",
+        "未收口清单与 ffs.json 条数一致"
+      ],
+      "outputs": [
+        "续篇 §n.5/§n.6/§n.7",
+        "附录 A/B",
+        "_seal.json"
+      ]
+    }
+  ],
+  "_stages_note": "两阶段：A* 单场会议内串链（对账单元=Agreement 块），B* 跨会议按 WI 条目归并演进（组织单元=WI 条目）。块必须在正文出现且仅出现一次。"
+}
