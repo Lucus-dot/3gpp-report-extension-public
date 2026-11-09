@@ -418,10 +418,7 @@ python $S plan
 │   ├── calc.py               折算库
 │   ├── doclint.py            结构校验库（H1 对账 / 块数守恒 / 四段齐全 / 关系类型）
 │   └── selftest.py           自检：20 条断言，验证「该抓的抓得住」及 compose 的幂等/保真
-└── example/                  一套完整的三代产物（见 example/README.md）
-    ├── _eom_941_verbatim.txt            主席报告 9.4.1 段的逐字摘录（块数对账的基准）
-    ├── _verify/rel.json                 模型对 18 个 WI 条目的关系判定（校验「四段齐全」要用）
-    └── …四份 .md                        基准报告 / 本技能产出 / 相邻技能产出 ×2
+
 ```
 
 ---
